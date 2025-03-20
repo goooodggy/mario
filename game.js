@@ -11,6 +11,10 @@ const COIN_SIZE = 30;
 const ENEMY_WIDTH = 40;
 const ENEMY_HEIGHT = 40;
 
+// 视口和世界尺寸
+const WORLD_WIDTH = 2000; // 游戏世界的总宽度
+const viewportOffset = { x: 0 }; // 视口偏移
+
 // 游戏状态
 let score = 0;
 let lives = 3;
@@ -32,35 +36,45 @@ const mario = {
     velocityX: 0,
     velocityY: 0,
     isJumping: false,
-    facingRight: true
+    facingRight: true,
+    worldX: 50 // 在整个游戏世界中的实际X坐标
 };
 
 // 创建平台
 const platforms = [
-    { x: 0, y: canvasHeight - GROUND_HEIGHT, width: canvasWidth, height: GROUND_HEIGHT },
+    { x: 0, y: canvasHeight - GROUND_HEIGHT, width: WORLD_WIDTH, height: GROUND_HEIGHT },
     { x: 200, y: canvasHeight - 150, width: 100, height: 20 },
     { x: 400, y: canvasHeight - 200, width: 100, height: 20 },
-    { x: 600, y: canvasHeight - 150, width: 100, height: 20 }
+    { x: 600, y: canvasHeight - 150, width: 100, height: 20 },
+    { x: 800, y: canvasHeight - 200, width: 100, height: 20 },
+    { x: 1000, y: canvasHeight - 180, width: 100, height: 20 },
+    { x: 1200, y: canvasHeight - 220, width: 150, height: 20 }
 ];
 
 // 创建砖块
 const bricks = [
     { x: 300, y: canvasHeight - 250, width: BRICK_WIDTH, height: BRICK_HEIGHT },
     { x: 350, y: canvasHeight - 250, width: BRICK_WIDTH, height: BRICK_HEIGHT },
-    { x: 500, y: canvasHeight - 300, width: BRICK_WIDTH, height: BRICK_HEIGHT }
+    { x: 500, y: canvasHeight - 300, width: BRICK_WIDTH, height: BRICK_HEIGHT },
+    { x: 700, y: canvasHeight - 250, width: BRICK_WIDTH, height: BRICK_HEIGHT },
+    { x: 900, y: canvasHeight - 300, width: BRICK_WIDTH, height: BRICK_HEIGHT },
+    { x: 950, y: canvasHeight - 300, width: BRICK_WIDTH, height: BRICK_HEIGHT }
 ];
 
 // 创建金币
 const coins = [
     { x: 300, y: canvasHeight - 300, width: COIN_SIZE, height: COIN_SIZE, collected: false },
     { x: 500, y: canvasHeight - 350, width: COIN_SIZE, height: COIN_SIZE, collected: false },
-    { x: 650, y: canvasHeight - 200, width: COIN_SIZE, height: COIN_SIZE, collected: false }
+    { x: 650, y: canvasHeight - 200, width: COIN_SIZE, height: COIN_SIZE, collected: false },
+    { x: 800, y: canvasHeight - 250, width: COIN_SIZE, height: COIN_SIZE, collected: false },
+    { x: 1000, y: canvasHeight - 230, width: COIN_SIZE, height: COIN_SIZE, collected: false }
 ];
 
 // 创建敌人
 const enemies = [
     { x: 300, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 },
-    { x: 600, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 }
+    { x: 600, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 },
+    { x: 900, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 }
 ];
 
 // 按键状态
@@ -133,6 +147,28 @@ function checkCollision(rect1, rect2) {
     );
 }
 
+// 更精确的碰撞检测
+function getCollisionDirection(obj1, obj2) {
+    const dx = (obj1.x + obj1.width / 2) - (obj2.x + obj2.width / 2);
+    const dy = (obj1.y + obj1.height / 2) - (obj2.y + obj2.height / 2);
+    const width = (obj1.width + obj2.width) / 2;
+    const height = (obj1.height + obj2.height) / 2;
+    const crossWidth = width * dy;
+    const crossHeight = height * dx;
+    
+    let direction = '';
+    
+    if (Math.abs(dx) <= width && Math.abs(dy) <= height) {
+        if (crossWidth > crossHeight) {
+            direction = (crossWidth > -crossHeight) ? 'bottom' : 'left';
+        } else {
+            direction = (crossWidth > -crossHeight) ? 'right' : 'top';
+        }
+    }
+    
+    return direction;
+}
+
 // 更新游戏状态
 function update() {
     if (!gameStarted || gameOver) return;
@@ -157,58 +193,94 @@ function update() {
         mario.isJumping = true;
     }
 
-    // 更新位置
-    mario.x += mario.velocityX;
+    // 更新世界位置
+    mario.worldX += mario.velocityX;
+    
+    // 限制玩家不能超出世界左边界
+    if (mario.worldX < 0) mario.worldX = 0;
+    if (mario.worldX > WORLD_WIDTH - mario.width) mario.worldX = WORLD_WIDTH - mario.width;
+    
+    // 更新视口偏移
+    if (mario.worldX > canvasWidth / 2 && mario.worldX < WORLD_WIDTH - canvasWidth / 2) {
+        viewportOffset.x = mario.worldX - canvasWidth / 2;
+    }
+    
+    // 更新玩家在画布上的位置
+    mario.x = mario.worldX - viewportOffset.x;
     mario.y += mario.velocityY;
-
-    // 边界检测
-    if (mario.x < 0) mario.x = 0;
-    if (mario.x + mario.width > canvasWidth) mario.x = canvasWidth - mario.width;
 
     // 重置跳跃状态
     mario.isJumping = true;
 
     // 平台碰撞检测
     platforms.forEach(platform => {
+        const platformOnScreen = {
+            x: platform.x - viewportOffset.x,
+            y: platform.y,
+            width: platform.width,
+            height: platform.height
+        };
+        
         if (
-            mario.y + mario.height > platform.y &&
-            mario.y + mario.height < platform.y + platform.height + 10 &&
-            mario.x + mario.width > platform.x &&
-            mario.x < platform.x + platform.width &&
+            mario.y + mario.height > platformOnScreen.y &&
+            mario.y + mario.height < platformOnScreen.y + platformOnScreen.height + 10 &&
+            mario.x + mario.width > platformOnScreen.x &&
+            mario.x < platformOnScreen.x + platformOnScreen.width &&
             mario.velocityY > 0
         ) {
-            mario.y = platform.y - mario.height;
+            mario.y = platformOnScreen.y - mario.height;
             mario.velocityY = 0;
             mario.isJumping = false;
         }
     });
 
-    // 砖块碰撞检测
+    // 砖块碰撞检测 - 使用改进的碰撞检测逻辑
     bricks.forEach(brick => {
-        if (checkCollision(mario, brick)) {
-            // 从下方碰撞
-            if (mario.velocityY < 0 && mario.y + mario.height <= brick.y + 20) {
+        const brickOnScreen = {
+            x: brick.x - viewportOffset.x,
+            y: brick.y,
+            width: brick.width,
+            height: brick.height
+        };
+        
+        if (checkCollision(mario, brickOnScreen)) {
+            const direction = getCollisionDirection(mario, brickOnScreen);
+            
+            // 从底部碰撞（撞砖块底部）
+            if (direction === 'bottom' && mario.velocityY < 0) {
                 mario.velocityY = 0;
-                mario.y = brick.y + brick.height;
+                mario.y = brickOnScreen.y + brickOnScreen.height;
             } 
-            // 从上方碰撞
-            else if (mario.velocityY > 0 && mario.y >= brick.y - mario.height) {
-                mario.y = brick.y - mario.height;
+            // 从顶部碰撞（站在砖块上）
+            else if (direction === 'top' && mario.velocityY > 0) {
+                mario.y = brickOnScreen.y - mario.height;
                 mario.velocityY = 0;
                 mario.isJumping = false;
             }
-            // 从侧面碰撞
-            else if (mario.facingRight) {
-                mario.x = brick.x - mario.width;
-            } else {
-                mario.x = brick.x + brick.width;
+            // 从左侧碰撞
+            else if (direction === 'left') {
+                mario.worldX = brick.x - mario.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            } 
+            // 从右侧碰撞
+            else if (direction === 'right') {
+                mario.worldX = brick.x + brick.width;
+                mario.x = mario.worldX - viewportOffset.x;
             }
         }
     });
 
     // 金币碰撞检测
     coins.forEach(coin => {
-        if (!coin.collected && checkCollision(mario, coin)) {
+        const coinOnScreen = {
+            x: coin.x - viewportOffset.x,
+            y: coin.y,
+            width: coin.width,
+            height: coin.height,
+            collected: coin.collected
+        };
+        
+        if (!coin.collected && checkCollision(mario, coinOnScreen)) {
             coin.collected = true;
             score += 100;
             updateScore();
@@ -220,12 +292,27 @@ function update() {
         enemy.x += enemy.velocityX;
 
         // 敌人碰到边界就转向
-        if (enemy.x <= 0 || enemy.x + enemy.width >= canvasWidth) {
+        if (enemy.x <= 0 || enemy.x + enemy.width >= WORLD_WIDTH) {
             enemy.velocityX *= -1;
         }
 
+        // 显示在屏幕上的敌人位置
+        const enemyOnScreen = {
+            x: enemy.x - viewportOffset.x,
+            y: enemy.y,
+            width: enemy.width,
+            height: enemy.height
+        };
+
         // 检测和平台的碰撞
         platforms.forEach(platform => {
+            const platformOnScreen = {
+                x: platform.x - viewportOffset.x,
+                y: platform.y,
+                width: platform.width,
+                height: platform.height
+            };
+            
             if (
                 enemy.x + enemy.width > platform.x &&
                 enemy.x < platform.x + platform.width &&
@@ -237,9 +324,9 @@ function update() {
         });
 
         // 玛丽与敌人碰撞
-        if (checkCollision(mario, enemy)) {
+        if (checkCollision(mario, enemyOnScreen)) {
             // 从上方跳到敌人头上
-            if (mario.velocityY > 0 && mario.y + mario.height < enemy.y + enemy.height / 2) {
+            if (mario.velocityY > 0 && mario.y + mario.height < enemyOnScreen.y + enemyOnScreen.height / 2) {
                 enemy.velocityX = 0;
                 enemy.y = canvasHeight + 100; // 移出屏幕
                 score += 200;
@@ -255,9 +342,11 @@ function update() {
                     document.getElementById('start-button').textContent = '重新开始';
                 } else {
                     // 重置玛丽位置
-                    mario.x = 50;
+                    mario.worldX = 50;
+                    mario.x = mario.worldX - viewportOffset.x;
                     mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
                     mario.velocityY = 0;
+                    viewportOffset.x = 0; // 重置视口
                 }
             }
         }
@@ -273,9 +362,11 @@ function update() {
             document.getElementById('start-button').textContent = '重新开始';
         } else {
             // 重置玛丽位置
-            mario.x = 50;
+            mario.worldX = 50;
+            mario.x = mario.worldX - viewportOffset.x;
             mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
             mario.velocityY = 0;
+            viewportOffset.x = 0; // 重置视口
         }
     }
 }
@@ -302,39 +393,70 @@ function draw() {
     // 绘制平台
     ctx.fillStyle = '#8B4513';
     platforms.forEach(platform => {
-        if (platform.y === canvasHeight - GROUND_HEIGHT) {
-            // 地面
-            ctx.fillStyle = '#8B4513';
-            ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-            
-            // 草
-            ctx.fillStyle = '#228B22';
-            ctx.fillRect(platform.x, platform.y, platform.width, 10);
-        } else {
-            // 其他平台
-            ctx.fillStyle = '#A0522D';
-            ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+        // 只绘制视口内的平台
+        const platformOnScreen = {
+            x: platform.x - viewportOffset.x,
+            y: platform.y,
+            width: platform.width,
+            height: platform.height
+        };
+        
+        if (platformOnScreen.x < canvasWidth && platformOnScreen.x + platformOnScreen.width > 0) {
+            if (platform.y === canvasHeight - GROUND_HEIGHT) {
+                // 地面
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(platformOnScreen.x, platformOnScreen.y, platformOnScreen.width, platformOnScreen.height);
+                
+                // 草
+                ctx.fillStyle = '#228B22';
+                ctx.fillRect(platformOnScreen.x, platformOnScreen.y, platformOnScreen.width, 10);
+            } else {
+                // 其他平台
+                ctx.fillStyle = '#A0522D';
+                ctx.fillRect(platformOnScreen.x, platformOnScreen.y, platformOnScreen.width, platformOnScreen.height);
+            }
         }
     });
 
     // 绘制砖块
     ctx.fillStyle = '#B87333';
     bricks.forEach(brick => {
-        ctx.fillRect(brick.x, brick.y, brick.width, brick.height);
+        // 只绘制视口内的砖块
+        const brickOnScreen = {
+            x: brick.x - viewportOffset.x,
+            y: brick.y,
+            width: brick.width,
+            height: brick.height
+        };
         
-        // 砖块花纹
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(brick.x + 5, brick.y + 5, brick.width - 10, 2);
-        ctx.fillRect(brick.x + 5, brick.y + brick.height - 7, brick.width - 10, 2);
+        if (brickOnScreen.x < canvasWidth && brickOnScreen.x + brickOnScreen.width > 0) {
+            ctx.fillRect(brickOnScreen.x, brickOnScreen.y, brickOnScreen.width, brickOnScreen.height);
+            
+            // 砖块花纹
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(brickOnScreen.x + 5, brickOnScreen.y + 5, brickOnScreen.width - 10, 2);
+            ctx.fillRect(brickOnScreen.x + 5, brickOnScreen.y + brickOnScreen.height - 7, brickOnScreen.width - 10, 2);
+            ctx.fillStyle = '#B87333'; // 重置颜色
+        }
     });
 
     // 绘制金币
     ctx.fillStyle = '#FFD700';
     coins.forEach(coin => {
         if (!coin.collected) {
-            ctx.beginPath();
-            ctx.arc(coin.x + coin.width/2, coin.y + coin.height/2, coin.width/2, 0, Math.PI * 2);
-            ctx.fill();
+            // 只绘制视口内的金币
+            const coinOnScreen = {
+                x: coin.x - viewportOffset.x,
+                y: coin.y,
+                width: coin.width,
+                height: coin.height
+            };
+            
+            if (coinOnScreen.x < canvasWidth && coinOnScreen.x + coinOnScreen.width > 0) {
+                ctx.beginPath();
+                ctx.arc(coinOnScreen.x + coinOnScreen.width/2, coinOnScreen.y + coinOnScreen.height/2, coinOnScreen.width/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
     });
 
@@ -342,20 +464,31 @@ function draw() {
     ctx.fillStyle = '#8B0000';
     enemies.forEach(enemy => {
         if (enemy.y < canvasHeight) {
-            ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+            // 只绘制视口内的敌人
+            const enemyOnScreen = {
+                x: enemy.x - viewportOffset.x,
+                y: enemy.y,
+                width: enemy.width,
+                height: enemy.height
+            };
             
-            // 敌人眼睛
-            ctx.fillStyle = 'white';
-            ctx.beginPath();
-            ctx.arc(enemy.x + 10, enemy.y + 15, 5, 0, Math.PI * 2);
-            ctx.arc(enemy.x + enemy.width - 10, enemy.y + 15, 5, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = 'black';
-            ctx.beginPath();
-            ctx.arc(enemy.x + 10, enemy.y + 15, 2, 0, Math.PI * 2);
-            ctx.arc(enemy.x + enemy.width - 10, enemy.y + 15, 2, 0, Math.PI * 2);
-            ctx.fill();
+            if (enemyOnScreen.x < canvasWidth && enemyOnScreen.x + enemyOnScreen.width > 0) {
+                ctx.fillRect(enemyOnScreen.x, enemyOnScreen.y, enemyOnScreen.width, enemyOnScreen.height);
+                
+                // 敌人眼睛
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(enemyOnScreen.x + 10, enemyOnScreen.y + 15, 5, 0, Math.PI * 2);
+                ctx.arc(enemyOnScreen.x + enemyOnScreen.width - 10, enemyOnScreen.y + 15, 5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(enemyOnScreen.x + 10, enemyOnScreen.y + 15, 2, 0, Math.PI * 2);
+                ctx.arc(enemyOnScreen.x + enemyOnScreen.width - 10, enemyOnScreen.y + 15, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#8B0000'; // 重置颜色
+            }
         }
     });
 
@@ -437,7 +570,9 @@ function resetGame() {
     score = 0;
     lives = 3;
     gameOver = false;
+    viewportOffset.x = 0;
     
+    mario.worldX = 50;
     mario.x = 50;
     mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
     mario.velocityX = 0;
@@ -448,8 +583,12 @@ function resetGame() {
             enemy.x = 300;
             enemy.y = canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT;
             enemy.velocityX = -2;
-        } else {
+        } else if (index === 1) {
             enemy.x = 600;
+            enemy.y = canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT;
+            enemy.velocityX = -2;
+        } else {
+            enemy.x = 900;
             enemy.y = canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT;
             enemy.velocityX = -2;
         }
