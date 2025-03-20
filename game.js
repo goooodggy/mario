@@ -10,6 +10,14 @@ const BRICK_HEIGHT = 50;
 const COIN_SIZE = 30;
 const ENEMY_WIDTH = 40;
 const ENEMY_HEIGHT = 40;
+const MUSHROOM_WIDTH = 40;
+const MUSHROOM_HEIGHT = 40;
+const QUESTION_BLOCK_WIDTH = 50;
+const QUESTION_BLOCK_HEIGHT = 50;
+const PIPE_WIDTH = 70;
+const PIPE_HEIGHT = 100;
+const PIRANHA_WIDTH = 50;
+const PIRANHA_HEIGHT = 60;
 
 // 视口和世界尺寸
 const WORLD_WIDTH = 2000; // 游戏世界的总宽度
@@ -20,6 +28,7 @@ let score = 0;
 let lives = 3;
 let gameStarted = false;
 let gameOver = false;
+let marioIsBig = false; // 马里奥是否吃到蘑菇变大
 
 // 画布设置
 const canvas = document.getElementById('game-canvas');
@@ -61,6 +70,15 @@ const bricks = [
     { x: 950, y: canvasHeight - 300, width: BRICK_WIDTH, height: BRICK_HEIGHT }
 ];
 
+// 创建问号砖块
+const questionBlocks = [
+    { x: 250, y: canvasHeight - 250, width: QUESTION_BLOCK_WIDTH, height: QUESTION_BLOCK_HEIGHT, hit: false, hasMushroom: true, mushroomReleased: false },
+    { x: 450, y: canvasHeight - 300, width: QUESTION_BLOCK_WIDTH, height: QUESTION_BLOCK_HEIGHT, hit: false, hasMushroom: true, mushroomReleased: false },
+    { x: 750, y: canvasHeight - 250, width: QUESTION_BLOCK_WIDTH, height: QUESTION_BLOCK_HEIGHT, hit: false, hasMushroom: true, mushroomReleased: false },
+    { x: 850, y: canvasHeight - 300, width: QUESTION_BLOCK_WIDTH, height: QUESTION_BLOCK_HEIGHT, hit: false, hasMushroom: false, mushroomReleased: false }, // 这个只有金币
+    { x: 1100, y: canvasHeight - 250, width: QUESTION_BLOCK_WIDTH, height: QUESTION_BLOCK_HEIGHT, hit: false, hasMushroom: true, mushroomReleased: false }
+];
+
 // 创建金币
 const coins = [
     { x: 300, y: canvasHeight - 300, width: COIN_SIZE, height: COIN_SIZE, collected: false },
@@ -70,12 +88,44 @@ const coins = [
     { x: 1000, y: canvasHeight - 230, width: COIN_SIZE, height: COIN_SIZE, collected: false }
 ];
 
+// 创建蘑菇
+const mushrooms = [];
+
 // 创建敌人
 const enemies = [
     { x: 300, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 },
     { x: 600, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 },
     { x: 900, y: canvasHeight - GROUND_HEIGHT - ENEMY_HEIGHT, width: ENEMY_WIDTH, height: ENEMY_HEIGHT, velocityX: -2 }
 ];
+
+// 创建管道
+const pipes = [
+    { x: 400, y: canvasHeight - GROUND_HEIGHT - PIPE_HEIGHT, width: PIPE_WIDTH, height: PIPE_HEIGHT, hasPiranha: true },
+    { x: 800, y: canvasHeight - GROUND_HEIGHT - PIPE_HEIGHT, width: PIPE_WIDTH, height: PIPE_HEIGHT, hasPiranha: true },
+    { x: 1200, y: canvasHeight - GROUND_HEIGHT - PIPE_HEIGHT, width: PIPE_WIDTH, height: PIPE_HEIGHT, hasPiranha: true }
+];
+
+// 创建食人花
+const piranhas = pipes.map(pipe => {
+    if (pipe.hasPiranha) {
+        return {
+            x: pipe.x + (pipe.width - PIRANHA_WIDTH) / 2,
+            y: pipe.y - PIRANHA_HEIGHT / 2, // 一开始只露出一半
+            width: PIRANHA_WIDTH,
+            height: PIRANHA_HEIGHT,
+            maxY: pipe.y - PIRANHA_HEIGHT + 10, // 完全露出的位置
+            minY: pipe.y + pipe.height / 2, // 完全藏进管道的位置
+            direction: -1, // -1向上移动，1向下移动
+            moveSpeed: 0.5, // 移动速度
+            moveCounter: 0, // 移动计数
+            restCounter: 0, // 休息计数
+            isResting: false, // 是否正在休息
+            pipeX: pipe.x, // 所在管道的X坐标
+            pipeWidth: pipe.width // 所在管道的宽度
+        };
+    }
+    return null;
+}).filter(piranha => piranha !== null);
 
 // 按键状态
 const keys = {
@@ -270,6 +320,90 @@ function update() {
         }
     });
 
+    // 问号砖块碰撞检测
+    questionBlocks.forEach(block => {
+        const blockOnScreen = {
+            x: block.x - viewportOffset.x,
+            y: block.y,
+            width: block.width,
+            height: block.height
+        };
+        
+        if (checkCollision(mario, blockOnScreen) && !block.hit) {
+            const direction = getCollisionDirection(mario, blockOnScreen);
+            
+            // 从底部碰撞（撞问号砖块底部）
+            if (direction === 'bottom' && mario.velocityY < 0) {
+                mario.velocityY = 0;
+                mario.y = blockOnScreen.y + blockOnScreen.height;
+                
+                // 标记砖块被撞击
+                block.hit = true;
+                
+                // 生成蘑菇或金币
+                if (block.hasMushroom && !block.mushroomReleased) {
+                    block.mushroomReleased = true;
+                    // 创建新蘑菇
+                    mushrooms.push({
+                        x: block.x,
+                        y: block.y - MUSHROOM_HEIGHT,
+                        width: MUSHROOM_WIDTH,
+                        height: MUSHROOM_HEIGHT,
+                        velocityX: 2, // 蘑菇向右移动
+                        velocityY: 0,
+                        collected: false
+                    });
+                } else {
+                    // 如果没有蘑菇或蘑菇已经被释放，则生成金币
+                    score += 100;
+                    // 创建金币动画效果
+                    coins.push({
+                        x: block.x + block.width/4,
+                        y: block.y - COIN_SIZE,
+                        width: COIN_SIZE,
+                        height: COIN_SIZE,
+                        collected: false,
+                        animationTime: 30 // 金币显示的时间
+                    });
+                    updateScore();
+                }
+            } 
+            // 从顶部碰撞（站在问号砖块上）
+            else if (direction === 'top' && mario.velocityY > 0) {
+                mario.y = blockOnScreen.y - mario.height;
+                mario.velocityY = 0;
+                mario.isJumping = false;
+            }
+            // 从侧面碰撞
+            else if (direction === 'left') {
+                mario.worldX = block.x - mario.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            } 
+            else if (direction === 'right') {
+                mario.worldX = block.x + block.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            }
+        } else if (checkCollision(mario, blockOnScreen) && block.hit) {
+            const direction = getCollisionDirection(mario, blockOnScreen);
+            
+            // 撞击已被击中的砖块，只处理物理碰撞
+            if (direction === 'top' && mario.velocityY > 0) {
+                mario.y = blockOnScreen.y - mario.height;
+                mario.velocityY = 0;
+                mario.isJumping = false;
+            } else if (direction === 'left') {
+                mario.worldX = block.x - mario.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            } else if (direction === 'right') {
+                mario.worldX = block.x + block.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            } else if (direction === 'bottom' && mario.velocityY < 0) {
+                mario.velocityY = 0;
+                mario.y = blockOnScreen.y + blockOnScreen.height;
+            }
+        }
+    });
+
     // 金币碰撞检测
     coins.forEach(coin => {
         const coinOnScreen = {
@@ -286,6 +420,89 @@ function update() {
             updateScore();
         }
     });
+
+    // 蘑菇逻辑更新
+    mushrooms.forEach((mushroom, index) => {
+        // 应用重力
+        mushroom.velocityY += GRAVITY / 2;
+        
+        // 移动蘑菇
+        mushroom.x += mushroom.velocityX;
+        mushroom.y += mushroom.velocityY;
+        
+        // 蘑菇与平台的碰撞检测
+        platforms.forEach(platform => {
+            if (
+                mushroom.x + mushroom.width > platform.x &&
+                mushroom.x < platform.x + platform.width &&
+                mushroom.y + mushroom.height > platform.y &&
+                mushroom.y + mushroom.height < platform.y + platform.height
+            ) {
+                mushroom.y = platform.y - mushroom.height;
+                mushroom.velocityY = 0;
+            }
+        });
+        
+        // 蘑菇与砖块的碰撞检测
+        bricks.concat(questionBlocks).forEach(brick => {
+            if (
+                mushroom.x + mushroom.width > brick.x &&
+                mushroom.x < brick.x + brick.width &&
+                mushroom.y + mushroom.height > brick.y &&
+                mushroom.y + mushroom.height < brick.y + brick.height
+            ) {
+                mushroom.y = brick.y - mushroom.height;
+                mushroom.velocityY = 0;
+            }
+            
+            // 蘑菇遇到障碍物就改变方向
+            if (
+                (mushroom.x + mushroom.width > brick.x && mushroom.x < brick.x) ||
+                (mushroom.x < brick.x + brick.width && mushroom.x + mushroom.width > brick.x + brick.width)
+            ) {
+                if (
+                    mushroom.y + mushroom.height > brick.y &&
+                    mushroom.y < brick.y + brick.height
+                ) {
+                    mushroom.velocityX *= -1;
+                }
+            }
+        });
+        
+        // 蘑菇到达世界边界就转向
+        if (mushroom.x <= 0 || mushroom.x + mushroom.width >= WORLD_WIDTH) {
+            mushroom.velocityX *= -1;
+        }
+        
+        // 马里奥与蘑菇的碰撞检测
+        const mushroomOnScreen = {
+            x: mushroom.x - viewportOffset.x,
+            y: mushroom.y,
+            width: mushroom.width,
+            height: mushroom.height
+        };
+        
+        if (!mushroom.collected && checkCollision(mario, mushroomOnScreen)) {
+            mushroom.collected = true;
+            score += 1000;
+            updateScore();
+            
+            // 马里奥变大逻辑
+            if (!marioIsBig) {
+                marioIsBig = true;
+                mario.height = MARIO_HEIGHT * 1.5;
+                // 调整位置，防止嵌入地面
+                mario.y = mario.y - (MARIO_HEIGHT * 0.5);
+            }
+        }
+    });
+    
+    // 过滤已收集的蘑菇
+    for (let i = mushrooms.length - 1; i >= 0; i--) {
+        if (mushrooms[i].collected) {
+            mushrooms.splice(i, 1);
+        }
+    }
 
     // 敌人移动和碰撞检测
     enemies.forEach(enemy => {
@@ -347,6 +564,116 @@ function update() {
                     mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
                     mario.velocityY = 0;
                     viewportOffset.x = 0; // 重置视口
+                }
+            }
+        }
+    });
+
+    // 管道碰撞检测
+    pipes.forEach(pipe => {
+        const pipeOnScreen = {
+            x: pipe.x - viewportOffset.x,
+            y: pipe.y,
+            width: pipe.width,
+            height: pipe.height
+        };
+        
+        if (checkCollision(mario, pipeOnScreen)) {
+            const direction = getCollisionDirection(mario, pipeOnScreen);
+            
+            // 从顶部碰撞（站在管道上）
+            if (direction === 'top' && mario.velocityY > 0) {
+                mario.y = pipeOnScreen.y - mario.height;
+                mario.velocityY = 0;
+                mario.isJumping = false;
+            }
+            // 从侧面碰撞
+            else if (direction === 'left') {
+                mario.worldX = pipe.x - mario.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            } 
+            else if (direction === 'right') {
+                mario.worldX = pipe.x + pipe.width;
+                mario.x = mario.worldX - viewportOffset.x;
+            }
+        }
+    });
+    
+    // 食人花逻辑更新
+    piranhas.forEach(piranha => {
+        // 检查马里奥是否在管道附近（影响食人花移动）
+        const isPlayerNear = Math.abs((mario.worldX + mario.width/2) - (piranha.pipeX + piranha.pipeWidth/2)) < 200;
+        
+        if (piranha.isResting) {
+            // 食人花正在休息
+            piranha.restCounter++;
+            if (piranha.restCounter > 120) { // 休息2秒
+                piranha.isResting = false;
+                piranha.restCounter = 0;
+                
+                // 如果玩家站在管道上，则不要出现
+                const standingOnPipe = mario.worldX + mario.width > piranha.pipeX && 
+                                     mario.worldX < piranha.pipeX + piranha.pipeWidth && 
+                                     Math.abs(mario.y + mario.height - piranha.maxY) < 20;
+                
+                if (!standingOnPipe) {
+                    piranha.direction = -1; // 向上移动
+                }
+            }
+        } else {
+            // 正常移动
+            piranha.y += piranha.direction * piranha.moveSpeed;
+            
+            // 如果达到最大或最小高度，改变方向或休息
+            if (piranha.y <= piranha.maxY) {
+                piranha.y = piranha.maxY;
+                piranha.moveCounter++;
+                
+                // 在顶部停留一段时间
+                if (piranha.moveCounter > 180) { // 3秒
+                    piranha.direction = 1; // 向下移动
+                    piranha.moveCounter = 0;
+                }
+            } else if (piranha.y >= piranha.minY) {
+                piranha.y = piranha.minY;
+                piranha.isResting = true; // 开始休息
+                piranha.direction = 0; // 停止移动
+            }
+            
+            // 如果玩家突然接近，食人花应该缩回管道
+            if (isPlayerNear && piranha.y < piranha.minY && piranha.direction === -1) {
+                piranha.direction = 1; // 向下移动（缩回）
+            }
+        }
+        
+        // 马里奥与食人花的碰撞检测
+        const piranhaOnScreen = {
+            x: piranha.x - viewportOffset.x,
+            y: piranha.y,
+            width: piranha.width,
+            height: piranha.height
+        };
+        
+        if (checkCollision(mario, piranhaOnScreen)) {
+            // 碰到食人花会受伤
+            lives--;
+            updateLives();
+            
+            if (lives <= 0) {
+                gameOver = true;
+                document.getElementById('start-button').textContent = '重新开始';
+            } else {
+                // 重置马里奥位置
+                mario.worldX = 50;
+                mario.x = mario.worldX - viewportOffset.x;
+                mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
+                mario.velocityY = 0;
+                viewportOffset.x = 0; // 重置视口
+                
+                // 如果变大了，恢复正常大小
+                if (marioIsBig) {
+                    marioIsBig = false;
+                    mario.height = MARIO_HEIGHT;
                 }
             }
         }
@@ -440,6 +767,35 @@ function draw() {
         }
     });
 
+    // 绘制问号砖块
+    questionBlocks.forEach(block => {
+        // 只绘制视口内的问号砖块
+        const blockOnScreen = {
+            x: block.x - viewportOffset.x,
+            y: block.y,
+            width: block.width,
+            height: block.height
+        };
+        
+        if (blockOnScreen.x < canvasWidth && blockOnScreen.x + blockOnScreen.width > 0) {
+            if (!block.hit) {
+                // 未击中的问号砖块（黄色带问号）
+                ctx.fillStyle = '#FFD700';
+                ctx.fillRect(blockOnScreen.x, blockOnScreen.y, blockOnScreen.width, blockOnScreen.height);
+                
+                // 绘制问号
+                ctx.fillStyle = 'black';
+                ctx.font = '30px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('?', blockOnScreen.x + blockOnScreen.width / 2, blockOnScreen.y + blockOnScreen.height / 1.5);
+            } else {
+                // 已击中的问号砖块（变灰）
+                ctx.fillStyle = '#A9A9A9';
+                ctx.fillRect(blockOnScreen.x, blockOnScreen.y, blockOnScreen.width, blockOnScreen.height);
+            }
+        }
+    });
+    
     // 绘制金币
     ctx.fillStyle = '#FFD700';
     coins.forEach(coin => {
@@ -455,6 +811,43 @@ function draw() {
             if (coinOnScreen.x < canvasWidth && coinOnScreen.x + coinOnScreen.width > 0) {
                 ctx.beginPath();
                 ctx.arc(coinOnScreen.x + coinOnScreen.width/2, coinOnScreen.y + coinOnScreen.height/2, coinOnScreen.width/2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    });
+
+    // 绘制蘑菇
+    mushrooms.forEach(mushroom => {
+        if (!mushroom.collected) {
+            // 只绘制视口内的蘑菇
+            const mushroomOnScreen = {
+                x: mushroom.x - viewportOffset.x,
+                y: mushroom.y,
+                width: mushroom.width,
+                height: mushroom.height
+            };
+            
+            if (mushroomOnScreen.x < canvasWidth && mushroomOnScreen.x + mushroomOnScreen.width > 0) {
+                // 绘制蘑菇帽子（红色）
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(mushroomOnScreen.x, mushroomOnScreen.y, mushroomOnScreen.width, mushroomOnScreen.height / 2);
+                
+                // 绘制蘑菇茎（白色）
+                ctx.fillStyle = 'white';
+                ctx.fillRect(mushroomOnScreen.x, mushroomOnScreen.y + mushroomOnScreen.height / 2, mushroomOnScreen.width, mushroomOnScreen.height / 2);
+                
+                // 绘制蘑菇斑点（白色圆点）
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(mushroomOnScreen.x + 10, mushroomOnScreen.y + 10, 5, 0, Math.PI * 2);
+                ctx.arc(mushroomOnScreen.x + 30, mushroomOnScreen.y + 10, 5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 绘制蘑菇眼睛
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(mushroomOnScreen.x + 15, mushroomOnScreen.y + 25, 3, 0, Math.PI * 2);
+                ctx.arc(mushroomOnScreen.x + 25, mushroomOnScreen.y + 25, 3, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -492,55 +885,141 @@ function draw() {
         }
     });
 
-    // 绘制马里奥
+    // 绘制管道
+    pipes.forEach(pipe => {
+        // 只绘制视口内的管道
+        const pipeOnScreen = {
+            x: pipe.x - viewportOffset.x,
+            y: pipe.y,
+            width: pipe.width,
+            height: pipe.height
+        };
+        
+        if (pipeOnScreen.x < canvasWidth && pipeOnScreen.x + pipeOnScreen.width > 0) {
+            // 绘制管道主体（绿色）
+            ctx.fillStyle = '#00AA00';
+            ctx.fillRect(pipeOnScreen.x, pipeOnScreen.y, pipeOnScreen.width, pipeOnScreen.height);
+            
+            // 绘制管道顶部边缘（深绿色）
+            ctx.fillStyle = '#006600';
+            ctx.fillRect(pipeOnScreen.x - 5, pipeOnScreen.y, pipeOnScreen.width + 10, 10);
+            
+            // 绘制管道高光
+            ctx.fillStyle = '#00CC00';
+            ctx.fillRect(pipeOnScreen.x + 5, pipeOnScreen.y + 10, 10, pipeOnScreen.height - 10);
+        }
+    });
+    
+    // 绘制食人花
+    piranhas.forEach(piranha => {
+        // 只绘制视口内的食人花
+        const piranhaOnScreen = {
+            x: piranha.x - viewportOffset.x,
+            y: piranha.y,
+            width: piranha.width,
+            height: piranha.height
+        };
+        
+        if (piranhaOnScreen.x < canvasWidth && piranhaOnScreen.x + piranhaOnScreen.width > 0 && piranha.y < piranha.minY) {
+            // 绘制茎（绿色）
+            ctx.fillStyle = '#00AA00';
+            ctx.fillRect(piranhaOnScreen.x + piranhaOnScreen.width/2 - 5, piranhaOnScreen.y + 20, 10, piranhaOnScreen.height - 20);
+            
+            // 绘制叶子（绿色）
+            ctx.fillStyle = '#00AA00';
+            ctx.beginPath();
+            ctx.ellipse(piranhaOnScreen.x + 10, piranhaOnScreen.y + 40, 15, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(piranhaOnScreen.x + piranhaOnScreen.width - 10, piranhaOnScreen.y + 40, 15, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 绘制头部（红色）
+            ctx.fillStyle = '#FF0000';
+            ctx.beginPath();
+            ctx.arc(piranhaOnScreen.x + piranhaOnScreen.width/2, piranhaOnScreen.y + 20, piranhaOnScreen.width/2, 0, Math.PI, true);
+            ctx.fill();
+            
+            // 绘制一个白色半圆代表下嘴唇
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.arc(piranhaOnScreen.x + piranhaOnScreen.width/2, piranhaOnScreen.y + 20, piranhaOnScreen.width/2 - 5, 0, Math.PI, false);
+            ctx.fill();
+            
+            // 绘制眼睛（白色，带黑色瞳孔）
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(piranhaOnScreen.x + 15, piranhaOnScreen.y + 10, 8, 0, Math.PI * 2);
+            ctx.arc(piranhaOnScreen.x + piranhaOnScreen.width - 15, piranhaOnScreen.y + 10, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(piranhaOnScreen.x + 15, piranhaOnScreen.y + 10, 4, 0, Math.PI * 2);
+            ctx.arc(piranhaOnScreen.x + piranhaOnScreen.width - 15, piranhaOnScreen.y + 10, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+
+    // 绘制马里奥 - 根据是否变大调整大小
     if (mario.facingRight) {
         ctx.fillStyle = 'red';
         ctx.fillRect(mario.x, mario.y, mario.width, mario.height);
         
+        // 绘制特征，根据马里奥大小调整
+        const headHeight = marioIsBig ? 15 : 10;
+        const faceHeight = marioIsBig ? 30 : 20;
+        const bodyHeight = mario.height - headHeight - faceHeight;
+        
         // 帽子
-        ctx.fillRect(mario.x - 5, mario.y, mario.width + 10, 10);
+        ctx.fillRect(mario.x - 5, mario.y, mario.width + 10, headHeight);
         
         // 脸
         ctx.fillStyle = '#FFA07A';
-        ctx.fillRect(mario.x, mario.y + 10, mario.width, 20);
+        ctx.fillRect(mario.x, mario.y + headHeight, mario.width, faceHeight);
         
         // 眼睛
         ctx.fillStyle = 'white';
-        ctx.fillRect(mario.x + mario.width - 15, mario.y + 15, 10, 10);
+        ctx.fillRect(mario.x + mario.width - 15, mario.y + headHeight + 5, 10, 10);
         ctx.fillStyle = 'black';
-        ctx.fillRect(mario.x + mario.width - 10, mario.y + 18, 4, 4);
+        ctx.fillRect(mario.x + mario.width - 10, mario.y + headHeight + 8, 4, 4);
         
         // 胡子
         ctx.fillStyle = 'black';
-        ctx.fillRect(mario.x + mario.width - 20, mario.y + 25, 15, 3);
+        ctx.fillRect(mario.x + mario.width - 20, mario.y + headHeight + 15, 15, 3);
         
         // 裤子
         ctx.fillStyle = 'blue';
-        ctx.fillRect(mario.x, mario.y + 30, mario.width, 30);
+        ctx.fillRect(mario.x, mario.y + headHeight + faceHeight, mario.width, bodyHeight);
     } else {
         ctx.fillStyle = 'red';
         ctx.fillRect(mario.x, mario.y, mario.width, mario.height);
         
+        // 绘制特征，根据马里奥大小调整
+        const headHeight = marioIsBig ? 15 : 10;
+        const faceHeight = marioIsBig ? 30 : 20;
+        const bodyHeight = mario.height - headHeight - faceHeight;
+        
         // 帽子
-        ctx.fillRect(mario.x - 5, mario.y, mario.width + 10, 10);
+        ctx.fillRect(mario.x - 5, mario.y, mario.width + 10, headHeight);
         
         // 脸
         ctx.fillStyle = '#FFA07A';
-        ctx.fillRect(mario.x, mario.y + 10, mario.width, 20);
+        ctx.fillRect(mario.x, mario.y + headHeight, mario.width, faceHeight);
         
         // 眼睛
         ctx.fillStyle = 'white';
-        ctx.fillRect(mario.x + 5, mario.y + 15, 10, 10);
+        ctx.fillRect(mario.x + 5, mario.y + headHeight + 5, 10, 10);
         ctx.fillStyle = 'black';
-        ctx.fillRect(mario.x + 6, mario.y + 18, 4, 4);
+        ctx.fillRect(mario.x + 6, mario.y + headHeight + 8, 4, 4);
         
         // 胡子
         ctx.fillStyle = 'black';
-        ctx.fillRect(mario.x + 5, mario.y + 25, 15, 3);
+        ctx.fillRect(mario.x + 5, mario.y + headHeight + 15, 15, 3);
         
         // 裤子
         ctx.fillStyle = 'blue';
-        ctx.fillRect(mario.x, mario.y + 30, mario.width, 30);
+        ctx.fillRect(mario.x, mario.y + headHeight + faceHeight, mario.width, bodyHeight);
     }
 
     // 如果游戏未开始
@@ -570,6 +1049,7 @@ function resetGame() {
     score = 0;
     lives = 3;
     gameOver = false;
+    marioIsBig = false;
     viewportOffset.x = 0;
     
     mario.worldX = 50;
@@ -577,7 +1057,9 @@ function resetGame() {
     mario.y = canvasHeight - GROUND_HEIGHT - MARIO_HEIGHT;
     mario.velocityX = 0;
     mario.velocityY = 0;
+    mario.height = MARIO_HEIGHT; // 重置Mario的高度
     
+    // 重置敌人
     enemies.forEach((enemy, index) => {
         if (index === 0) {
             enemy.x = 300;
@@ -594,8 +1076,27 @@ function resetGame() {
         }
     });
     
+    // 重置金币
     coins.forEach(coin => {
         coin.collected = false;
+    });
+    
+    // 清空蘑菇数组
+    mushrooms.length = 0;
+    
+    // 重置问号砖块
+    questionBlocks.forEach(block => {
+        block.hit = false;
+        block.mushroomReleased = false;
+    });
+    
+    // 重置食人花
+    piranhas.forEach(piranha => {
+        piranha.y = piranha.minY;
+        piranha.direction = -1;
+        piranha.moveCounter = 0;
+        piranha.restCounter = 0;
+        piranha.isResting = true;
     });
     
     updateScore();
