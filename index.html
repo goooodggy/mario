@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超级玛丽游戏</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div id="game-status">
+            <span id="score">分数: 0</span>
+            <span id="lives">生命: 3</span>
+        </div>
+        <canvas id="game-canvas" width="800" height="400"></canvas>
+        <div class="controls">
+            <button id="start-button">开始游戏</button>
+            <div class="mobile-controls">
+                <button id="left-button">←</button>
+                <button id="right-button">→</button>
+                <button id="jump-button">跳跃</button>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
