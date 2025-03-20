@@ -19,9 +19,10 @@ const PIPE_HEIGHT = 100;
 const PIRANHA_WIDTH = 50;
 const PIRANHA_HEIGHT = 60;
 
-// 视口和世界尺寸
-const WORLD_WIDTH = 2000; // 游戏世界的总宽度
+// 视口和世界尺寸 - 大幅增加世界宽度并改进视口逻辑
+const WORLD_WIDTH = 5000; // 游戏世界的总宽度从3000增加到5000
 const viewportOffset = { x: 0 }; // 视口偏移
+const VIEWPORT_PADDING = 200; // 增加视口边缘缓冲区，让玩家能看到更远
 
 // 游戏状态
 let score = 0;
@@ -250,9 +251,11 @@ function update() {
     if (mario.worldX < 0) mario.worldX = 0;
     if (mario.worldX > WORLD_WIDTH - mario.width) mario.worldX = WORLD_WIDTH - mario.width;
     
-    // 更新视口偏移
-    if (mario.worldX > canvasWidth / 2 && mario.worldX < WORLD_WIDTH - canvasWidth / 2) {
-        viewportOffset.x = mario.worldX - canvasWidth / 2;
+    // 更新视口偏移 - 大幅改进视口跟随逻辑，提供更开阔的视野
+    if (mario.worldX > canvasWidth / 4) { // 从1/3改为1/4，让玩家看到更多前方内容
+        // 确保视口不会超出世界边界，同时保持足够的前视距离
+        const targetOffset = mario.worldX - canvasWidth / 4;
+        viewportOffset.x = Math.min(targetOffset, WORLD_WIDTH - canvasWidth);
     }
     
     // 更新玩家在画布上的位置
@@ -504,13 +507,47 @@ function update() {
         }
     }
 
-    // 敌人移动和碰撞检测
+    // 敌人移动和碰撞检测 - 修复敌人穿墙问题
     enemies.forEach(enemy => {
+        const oldX = enemy.x; // 保存移动前的位置
         enemy.x += enemy.velocityX;
 
         // 敌人碰到边界就转向
         if (enemy.x <= 0 || enemy.x + enemy.width >= WORLD_WIDTH) {
             enemy.velocityX *= -1;
+            enemy.x = oldX; // 恢复位置
+        }
+
+        // 检测敌人与砖块和管道的碰撞
+        let collided = false;
+        
+        // 敌人与砖块的碰撞
+        bricks.concat(questionBlocks).forEach(brick => {
+            if (
+                enemy.x + enemy.width > brick.x &&
+                enemy.x < brick.x + brick.width &&
+                enemy.y + enemy.height > brick.y &&
+                enemy.y < brick.y + brick.height
+            ) {
+                enemy.velocityX *= -1;
+                enemy.x = oldX; // 恢复位置
+                collided = true;
+            }
+        });
+        
+        // 敌人与管道的碰撞
+        if (!collided) {
+            pipes.forEach(pipe => {
+                if (
+                    enemy.x + enemy.width > pipe.x &&
+                    enemy.x < pipe.x + pipe.width &&
+                    enemy.y + enemy.height > pipe.y &&
+                    enemy.y < pipe.y + pipe.height
+                ) {
+                    enemy.velocityX *= -1;
+                    enemy.x = oldX; // 恢复位置
+                }
+            });
         }
 
         // 显示在屏幕上的敌人位置
@@ -599,10 +636,13 @@ function update() {
         }
     });
     
-    // 食人花逻辑更新
+    // 食人花逻辑更新 - 修复靠近管道不出来的问题
     piranhas.forEach(piranha => {
-        // 检查马里奥是否在管道附近（影响食人花移动）
-        const isPlayerNear = Math.abs((mario.worldX + mario.width/2) - (piranha.pipeX + piranha.pipeWidth/2)) < 200;
+        // 检查马里奥是否在管道正上方（而不是检查附近）
+        const isPlayerDirectlyAbove = 
+            mario.worldX + mario.width > piranha.pipeX && 
+            mario.worldX < piranha.pipeX + piranha.pipeWidth && 
+            Math.abs(mario.y + mario.height - piranha.maxY) < 30;
         
         if (piranha.isResting) {
             // 食人花正在休息
@@ -611,12 +651,10 @@ function update() {
                 piranha.isResting = false;
                 piranha.restCounter = 0;
                 
-                // 如果玩家站在管道上，则不要出现
-                const standingOnPipe = mario.worldX + mario.width > piranha.pipeX && 
-                                     mario.worldX < piranha.pipeX + piranha.pipeWidth && 
-                                     Math.abs(mario.y + mario.height - piranha.maxY) < 20;
-                
-                if (!standingOnPipe) {
+                // 仅当玩家站在管道正上方时，食人花才不出现
+                if (isPlayerDirectlyAbove) {
+                    piranha.direction = 0; // 保持隐藏
+                } else {
                     piranha.direction = -1; // 向上移动
                 }
             }
@@ -640,8 +678,8 @@ function update() {
                 piranha.direction = 0; // 停止移动
             }
             
-            // 如果玩家突然接近，食人花应该缩回管道
-            if (isPlayerNear && piranha.y < piranha.minY && piranha.direction === -1) {
+            // 只有当玩家站在管道正上方时，食人花才会回缩
+            if (isPlayerDirectlyAbove && piranha.y < piranha.minY) {
                 piranha.direction = 1; // 向下移动（缩回）
             }
         }
